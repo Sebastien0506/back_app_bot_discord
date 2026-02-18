@@ -11,6 +11,9 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -127,3 +130,7 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+DISCORD_CLIENT_ID=os.getenv("DISCORD_CLIENT_ID")
+DISCORD_REDIRECT_URI=os.getenv("DISCORD_REDIRECT_URI")
+DISCORD_CLIENT_SECRET=os.getenv("DISCORD_CLIENT_SECRET")

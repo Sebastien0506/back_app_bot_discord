@@ -16,7 +16,10 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from app_ania_back.backend.views import discord_login, discord_callback
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('auth/discord/login/', discord_login),
+    path('auth/discord/callback/', discord_callback)
 ]
