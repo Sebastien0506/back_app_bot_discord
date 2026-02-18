@@ -4,6 +4,7 @@ import os
 import urllib.parse
 from django.conf import settings
 import requests
+from .models import User
 from django.http import JsonResponse
 from rest_framework import status
 load_dotenv()
@@ -29,7 +30,7 @@ def discord_callback(request):
 
     if not code:
         return JsonResponse({"error": "No code provided"}, status=400)
-
+    #On renseigne les données données pour la requête
     data = {
         "client_id": settings.DISCORD_CLIENT_ID,
         "client_secret": settings.DISCORD_CLIENT_SECRET,
@@ -41,7 +42,7 @@ def discord_callback(request):
     headers = {
         "Content-Type": "application/x-www-form-urlencoded"
     }
-
+    #On fait la requête
     token_response = requests.post(
         "https://discord.com/api/oauth2/token",
         data=data,
@@ -54,4 +55,49 @@ def discord_callback(request):
     if token_response.status_code != 200:
         return JsonResponse({"error": "Token exchange failed"}, status=400)
 
-    return JsonResponse(token_response.json())
+    token_json = token_response.json()
+    access_token = token_json.get("access_token")
+
+    #On récupère les info de l'utilisateur
+    user_url = "https://discord.com/api/users/@me"
+
+   #On fait la demande
+    user_response = requests.get(
+        #On inclut l'url et le access_token
+        user_url,
+        headers={
+            "Authorization": f"Bearer {access_token}"
+        }
+    )
+    #Si user_response n'est pas bon on renvoi un message d'erreur
+    if user_response.status_code != 200 :
+        return JsonResponse({"error" : "Failed to fetch user"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    #On lis les données reçus
+    user_data = user_response.json()
+
+    #On créer l'objet user
+    avatar_hash = user_data.get("avatar")
+    avatar_url = None
+
+    if avatar_hash:
+        avatar_url = f"https://cdn.discordapp.com/avatars/{user_data['id']}/{avatar_hash}.png"
+
+    user, created = User.objects.update_or_create(
+        discord_id=user_data["id"],
+        defaults={
+            "username": user_data["username"],
+            "avatar_url": avatar_url,
+            "is_active": True
+        }
+    )
+    print("Utilisateur reçu :", user_data)
+
+    return JsonResponse({
+        "id": user.discord_id,
+        "username": user.username,
+        "avatar_url": user.avatar_url
+    })
+    
+    
+
