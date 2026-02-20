@@ -96,4 +96,18 @@ class ActionLog(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+class BotPermission(models.Model) :
+    code = models.CharField(max_length=100, unique=True)
+    description = models.CharField(max_length=255)
+
+    def __str__(self):
+        return self.code
+    
+
+class GuildRolePermission(models.Model) :
+    guild = models.ForeignKey(Guild, on_delete=models.CASCADE)
+    role_id = models.BigIntegerField()
+    permissions = models.ManyToManyField(BotPermission)
+    
+
 

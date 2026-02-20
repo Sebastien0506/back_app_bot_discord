@@ -4,9 +4,11 @@ import os
 import urllib.parse
 from django.conf import settings
 import requests
-from .models import User
+from .models import User, Guild, GuildRolePermission
 from django.http import JsonResponse
+from rest_framework.response import Response 
 from rest_framework import status
+from rest_framework.decorators import api_view
 load_dotenv()
 # Create your views here.
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
@@ -100,4 +102,20 @@ def discord_callback(request):
     })
     
     
+@api_view(["POST"])
+def check_permission(request):
+    guild_id = request.data.get("guild_id")
+    role_ids = request.data.get("role_ids", [])
+    permission_code = request.data.get("permission")
+
+    if not guild_id or not permission_code:
+        return Response({"allowed": False})
+
+    has_permission = GuildRolePermission.objects.filter(
+        guild__guild_id=guild_id,
+        role_id__in=role_ids,
+        permissions__code=permission_code
+    ).exists()
+
+    return Response({"allowed": has_permission})
 

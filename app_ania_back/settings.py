@@ -83,7 +83,7 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'app_bot',
-        'OPTION': {
+        'OPTIONS': {
             "service" : "my_service"
         }
     }
