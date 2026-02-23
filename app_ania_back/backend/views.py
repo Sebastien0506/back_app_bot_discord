@@ -9,6 +9,7 @@ from django.http import JsonResponse
 from rest_framework.response import Response 
 from rest_framework import status
 from rest_framework.decorators import api_view
+from app_ania_back.backend.serializer import MessageSerializer
 load_dotenv()
 # Create your views here.
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
@@ -118,4 +119,37 @@ def check_permission(request):
     ).exists()
 
     return Response({"allowed": has_permission})
+
+@api_view(["POST"])
+def on_message(request):
+
+    discord_id = request.data.get("discord_id")
+    content = request.data.get("message")
+
+    if not discord_id or not content:
+        return Response(
+            {"error": "discord_id ou message manquant"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # 🔎 On cherche l'utilisateur via discord_id
+    try:
+        user = User.objects.get(discord_id=discord_id)
+    except User.DoesNotExist:
+        return Response(
+            {"error": "Utilisateur introuvable"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # 📦 On initialise le serializer
+    serializer = MessageSerializer(data={"content": content})
+
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    # 💾 On sauvegarde avec le vrai user Django
+    serializer.save(user=user)
+
+    return Response({"message": "Message enregistré"})
+
 

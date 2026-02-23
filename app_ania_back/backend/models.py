@@ -108,6 +108,16 @@ class GuildRolePermission(models.Model) :
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE)
     role_id = models.BigIntegerField()
     permissions = models.ManyToManyField(BotPermission)
+
+class Message(models.Model) :
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="messages")
+
+    def __str__(self):
+        return f"{self.user.username}: {self.content[:20]}"
+    
+    
     
 
 
