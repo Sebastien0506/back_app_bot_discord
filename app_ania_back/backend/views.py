@@ -8,8 +8,11 @@ from .models import User, Guild, GuildRolePermission
 from django.http import JsonResponse
 from rest_framework.response import Response 
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from app_ania_back.backend.serializer import MessageSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import AuthenticationFailed
+from rest_framework.permissions import IsAuthenticated
 load_dotenv()
 # Create your views here.
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
@@ -27,6 +30,17 @@ def discord_login(request) :
     url = "http://discord.com/api/oauth2/authorize?" + urllib.parse.urlencode(params)
     print("Url Discord générée: ", url)
     return redirect(url)
+
+def get_token_for_user(user) :
+    if not user.is_active:
+        raise AuthenticationFailed("L'utilisateur n'est pas actif.")
+    
+    refresh = RefreshToken.for_user(user)
+    
+    return {
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+    }
 
 def discord_callback(request):
     code = request.GET.get("code")
@@ -85,21 +99,29 @@ def discord_callback(request):
 
     if avatar_hash:
         avatar_url = f"https://cdn.discordapp.com/avatars/{user_data['id']}/{avatar_hash}.png"
+    
+    
 
+    #On crée l'utilisateur
     user, created = User.objects.update_or_create(
         discord_id=user_data["id"],
         defaults={
             "username": user_data["username"],
             "avatar_url": avatar_url,
-            "is_active": True
+            "is_active": True,
         }
     )
     print("Utilisateur reçu :", user_data)
 
+    #On génère le token
+    tokens = get_token_for_user(user)
+
     return JsonResponse({
         "id": user.discord_id,
         "username": user.username,
-        "avatar_url": user.avatar_url
+        "avatar_url": user.avatar_url,
+        "access": tokens["access"],
+        "refresh": tokens["refresh"]
     })
     
     
@@ -121,8 +143,9 @@ def check_permission(request):
     return Response({"allowed": has_permission})
 
 @api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def on_message(request):
-
+    
     discord_id = request.data.get("discord_id")
     content = request.data.get("message")
 
