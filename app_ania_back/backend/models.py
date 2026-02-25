@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import AbstractUser
 
 
 class Guild(models.Model):
@@ -9,14 +10,11 @@ class Guild(models.Model):
         return self.name
 
 
-class User(models.Model):
+class User(AbstractUser):
     discord_id = models.BigIntegerField(unique=True)
-    username = models.CharField(max_length=50)
     avatar_url = models.URLField(blank=True, null=True)
-
-    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    last_login = models.DateTimeField(null=True, blank=True)
+    
 
     guilds = models.ManyToManyField(Guild, related_name="members")
 
