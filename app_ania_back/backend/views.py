@@ -13,6 +13,7 @@ from app_ania_back.backend.serializer import MessageSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import AuthenticationFailed, TokenError, InvalidToken
 from rest_framework.permissions import IsAuthenticated
+from app_ania_back.backend.authentication import CookieJWTAuthentication
 load_dotenv()
 # Create your views here.
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
@@ -116,15 +117,41 @@ def discord_callback(request):
     #On génère le token
     tokens = get_token_for_user(user)
 
-    return JsonResponse({
-        "id": user.discord_id,
+    response = redirect("http://localhost:4200/")
+
+    # On met dans les cookies
+    response.set_cookie(
+        key="access_token",
+        value=tokens["access"],
+        httponly=True,
+        secure=False,
+        samesite="Lax",
+        max_age=60 * 5,
+    )
+
+    # Cookie refresh (1 jour)
+    response.set_cookie(
+        key="refresh_token",
+        value=tokens["refresh"],
+        httponly=True,
+        secure=False,
+        samesite="Lax",
+        max_age=60 * 60 * 24,
+    )
+
+    return response
+    
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def me(request) :
+    user = request.user  
+
+    return Response({
+        "id" : user.discord_id,
         "username": user.username,
-        "avatar_url": user.avatar_url,
-        "access": tokens["access"],
-        "refresh": tokens["refresh"]
-    })
-    
-    
+        "avatar_url" : user.avatar_url
+    })  
+
 @api_view(["POST"])
 def check_permission(request):
     guild_id = request.data.get("guild_id")
@@ -143,7 +170,7 @@ def check_permission(request):
     return Response({"allowed": has_permission})
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([CookieJWTAuthentication])
 def on_message(request):
 
     user = request.user
