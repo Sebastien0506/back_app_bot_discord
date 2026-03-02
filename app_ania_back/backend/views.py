@@ -117,7 +117,7 @@ def discord_callback(request):
     #On génère le token
     tokens = get_token_for_user(user)
 
-    response = redirect("http://localhost:4200/")
+    response = redirect("http://localhost:4200/auth/success")
 
     # On met dans les cookies
     response.set_cookie(
@@ -147,7 +147,7 @@ def me(request) :
     user = request.user  
 
     return Response({
-        "id" : user.discord_id,
+        "id" : user.id,
         "username": user.username,
         "avatar_url" : user.avatar_url
     })  
