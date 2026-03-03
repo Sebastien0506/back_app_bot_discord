@@ -4,10 +4,11 @@ import os
 import urllib.parse
 from django.conf import settings
 import requests
-from .models import User, Guild, GuildRolePermission
+from .models import User, Guild, GuildRolePermission, Channel
 from django.http import JsonResponse
 from rest_framework.response import Response 
 from rest_framework import status
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
 from app_ania_back.backend.serializer import MessageSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -48,27 +49,21 @@ def discord_callback(request):
 
     if not code:
         return JsonResponse({"error": "No code provided"}, status=400)
-    #On renseigne les données données pour la requête
-    data = {
-        "client_id": settings.DISCORD_CLIENT_ID,
-        "client_secret": settings.DISCORD_CLIENT_SECRET,
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": settings.DISCORD_REDIRECT_URI,
-    }
 
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    #On fait la requête
+    # 1️⃣ Échange du code contre un access_token
     token_response = requests.post(
         "https://discord.com/api/oauth2/token",
-        data=data,
-        headers=headers
+        data={
+            "client_id": settings.DISCORD_CLIENT_ID,
+            "client_secret": settings.DISCORD_CLIENT_SECRET,
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": settings.DISCORD_REDIRECT_URI,
+        },
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
     )
-
-    print("Status code:", token_response.status_code)
-    print("Response:", token_response.text)
 
     if token_response.status_code != 200:
         return JsonResponse({"error": "Token exchange failed"}, status=400)
@@ -76,34 +71,27 @@ def discord_callback(request):
     token_json = token_response.json()
     access_token = token_json.get("access_token")
 
-    #On récupère les info de l'utilisateur
-    user_url = "https://discord.com/api/users/@me"
+    if not access_token:
+        return JsonResponse({"error": "No access token returned"}, status=400)
 
-   #On fait la demande
+    # 2️⃣ Récupération infos utilisateur
     user_response = requests.get(
-        #On inclut l'url et le access_token
-        user_url,
-        headers={
-            "Authorization": f"Bearer {access_token}"
-        }
+        "https://discord.com/api/v10/users/@me",
+        headers={"Authorization": f"Bearer {access_token}"}
     )
-    #Si user_response n'est pas bon on renvoi un message d'erreur
-    if user_response.status_code != 200 :
-        return JsonResponse({"error" : "Failed to fetch user"}, status=status.HTTP_400_BAD_REQUEST)
-    
-    #On lis les données reçus
+
+    if user_response.status_code != 200:
+        return JsonResponse({"error": "Failed to fetch user"}, status=400)
+
     user_data = user_response.json()
 
-    #On créer l'objet user
     avatar_hash = user_data.get("avatar")
     avatar_url = None
 
     if avatar_hash:
         avatar_url = f"https://cdn.discordapp.com/avatars/{user_data['id']}/{avatar_hash}.png"
-    
-    
 
-    #On crée l'utilisateur
+    # 3️⃣ Création / mise à jour utilisateur
     user, created = User.objects.update_or_create(
         discord_id=user_data["id"],
         defaults={
@@ -112,19 +100,43 @@ def discord_callback(request):
             "is_active": True,
         }
     )
-    print("Utilisateur reçu :", user_data)
 
-    #On génère le token
+    # 4️⃣ Récupération des guilds
+    guilds_response = requests.get(
+        "https://discord.com/api/v10/users/@me/guilds",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+
+    print("Guilds response:", guilds_response.status_code)
+    print("Guilds data:", guilds_response.text)
+
+    if guilds_response.status_code == 200:
+        guilds_data = guilds_response.json()
+
+        # On vide les anciennes relations pour éviter les doublons
+        user.guilds.clear()
+
+        for g in guilds_data:
+            guild_obj, _ = Guild.objects.update_or_create(
+                discord_id=g["id"],
+                defaults={
+                    "name": g["name"]
+                }
+            )
+            user.guilds.add(guild_obj)
+
+    # 5️⃣ Génération JWT
     tokens = get_token_for_user(user)
 
+    # 6️⃣ Redirection vers Angular
     response = redirect("http://localhost:4200/auth/success")
 
-    # On met dans les cookies
+    # Cookie access (5 min)
     response.set_cookie(
         key="access_token",
         value=tokens["access"],
         httponly=True,
-        secure=False,
+        secure=False,  # True en production HTTPS
         samesite="Lax",
         max_age=60 * 5,
     )
@@ -134,7 +146,7 @@ def discord_callback(request):
         key="refresh_token",
         value=tokens["refresh"],
         httponly=True,
-        secure=False,
+        secure=False,  # True en production HTTPS
         samesite="Lax",
         max_age=60 * 60 * 24,
     )
@@ -146,11 +158,21 @@ def discord_callback(request):
 def me(request) :
     user = request.user  
 
+    guilds = user.guilds.all()
+
+    guilds_data = [
+        {
+            "id": g.discord_id,
+            "name": g.name
+        }
+        for g in guilds
+    ] 
     return Response({
-        "id" : user.id,
+        "id": user.id,  # ID interne application
         "username": user.username,
-        "avatar_url" : user.avatar_url
-    })  
+        "avatar_url": user.avatar_url,
+        "guilds": guilds_data
+    })
 
 @api_view(["POST"])
 def check_permission(request):
@@ -191,4 +213,56 @@ def on_message(request):
 
     return Response({"message": "Message enregistré"})
 
+@csrf_exempt
+@api_view(["POST"])
+def sync_guild_channels(request):
 
+    guild_id = request.data.get("guild_id")
+    channels = request.data.get("channels")
+
+    if not guild_id or not channels:
+        return Response(
+            {"error": "Data manquante"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # ✅ On crée la guild si elle n'existe pas
+    guild, created = Guild.objects.get_or_create(
+        guild_id=guild_id,
+        defaults={"name": "Unknown"}
+    )
+
+    # 🧹 On supprime anciens channels
+    Channel.objects.filter(guild=guild).delete()
+
+    # 💾 On recrée les channels
+    for ch in channels:
+        Channel.objects.update_or_create(
+            channel_id=ch["id"],
+            defaults={
+                "guild": guild,
+                "name": ch["name"],
+                "channel_type": ch["type"]
+            }
+        )
+
+    return Response({"status": "Channels synchronisés"})
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_channels(request):
+    guild_id = request.GET.get("guild_id")
+
+    if not guild_id :
+        return Response({"error": "guild_id manquant"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    #Sécurité : vérifier que l'utilisateur appartient à la guild
+    if not request.user.guilds.filter(discord_id=guild_id).exist() :
+        return Response({"error", "Accès refusé"}, status=status.HTTP_403_FORBIDDEN)
+    
+    channels = Channel.objects.filter(guild__discord_id=guild_id)
+
+    serializer = ChannelSerializer(channels, many=True)
+
+    return Response(serializer.data)
+    
