@@ -14,6 +14,7 @@ class User(AbstractUser):
     discord_id = models.BigIntegerField(unique=True)
     avatar_url = models.URLField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    roles = models.ManyToManyField("GuildRolePermission", blank=True)
     
 
     guilds = models.ManyToManyField(Guild, related_name="members")
@@ -38,6 +39,7 @@ class Channel(models.Model):
     channel_id = models.BigIntegerField(unique=True)
     name = models.CharField(max_length=150)
     channel_type = models.CharField(max_length=20, choices=CHANNEL_TYPE)
+    restricted = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name
@@ -106,6 +108,7 @@ class GuildRolePermission(models.Model) :
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE)
     role_id = models.BigIntegerField()
     permissions = models.ManyToManyField(BotPermission)
+    name = models.CharField(max_length=100, default="unknown")
 
 class Message(models.Model) :
     content = models.TextField()
@@ -114,6 +117,21 @@ class Message(models.Model) :
 
     def __str__(self):
         return f"{self.user.username}: {self.content[:20]}"
+    
+class DiscordMessage(models.Model) :
+    message_id = models.BigIntegerField(unique=True)
+
+    channel =  models.ForeignKey(
+        Channel, 
+        on_delete=models.CASCADE,
+        related_name="discord_message"
+    )
+    author = models.CharField(max_length=255)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.author}: {self.content[:20]}"
     
     
     

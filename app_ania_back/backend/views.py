@@ -1,20 +1,23 @@
+import time
 from dotenv import load_dotenv
 from django.shortcuts import render, redirect
 import os
 import urllib.parse
 from django.conf import settings
 import requests
-from .models import User, Guild, GuildRolePermission, Channel
+from .models import User, Guild, GuildRolePermission, Channel, Message, DiscordMessage
 from django.http import JsonResponse
 from rest_framework.response import Response 
 from rest_framework import status
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
-from app_ania_back.backend.serializer import MessageSerializer, ChannelSerializer
+from app_ania_back.backend.serializer import MessageSerializer, ChannelSerializer, DiscordMessageSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import AuthenticationFailed, TokenError, InvalidToken
 from rest_framework.permissions import IsAuthenticated
 from app_ania_back.backend.authentication import CookieJWTAuthentication
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 load_dotenv()
 # Create your views here.
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
@@ -98,7 +101,14 @@ def discord_callback(request):
             "is_active": True,
         }
     )
-
+    
+    requests.post(
+        "http://localhost:8001/api/request_user_roles/",
+        json={
+            "guild_id": settings.BOT_GUILD_ID,
+            "user_id": user.discord_id
+        }
+    )
     # 4️⃣ Génération JWT
     tokens = get_token_for_user(user)
 
@@ -184,6 +194,7 @@ def on_message(request):
 
     return Response({"message": "Message enregistré"})
 
+
 @csrf_exempt
 @api_view(["POST"])
 def sync_guild_channels(request):
@@ -235,4 +246,106 @@ def get_channels(request):
     serializer = ChannelSerializer(channels, many=True)
 
     return Response(serializer.data)
+
+@csrf_exempt
+@api_view(["POST"])
+def sync_message(request) :
+    # On récupère les channels et les messages
+    channel_id = request.data.get("channel_id")
+    messages = request.data.get("messages")
+
+    #Si aucun channel_id ou messages est fourni
+    if not channel_id or not messages :
+        return Response(
+            {"error": "Data manquante"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     
+    # On vérifie si il existe
+    try : 
+        channel = Channel.objects.get(channel_id=channel_id)
+    
+    except Channel.DoesNotExist :
+        return Response(
+            {"error": "Channel introuvable"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    channel_layer = get_channel_layer()
+
+    for msg in messages :
+        #Pour chaque message on le créer
+        message_obj, created = DiscordMessage.objects.update_or_create(
+            message_id=msg["message_id"],
+            defaults={
+                "channel": channel,
+                "author": msg["author"],
+                "content": msg["content"]
+            }
+        )
+        group_name = f"channel_{channel_id}"
+        print("🔵 ENVOI AU GROUPE :", group_name)
+        
+        #On envoi au navigateur
+        async_to_sync(channel_layer.group_send)(
+            group_name,
+            {
+                "type": "new_message",
+                "message": {
+                    "author": message_obj.author,
+                    "content": message_obj.content,
+                    "created_at": str(message_obj.created_at)
+                }
+            }
+        )
+    return Response({"status": "Message synchronisés."})
+
+#PERMET DE RÉCUPÉRER LES MESSAGES
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_message(request, channel_id): 
+
+    channel = Channel.objects.get(channel_id=channel_id)
+
+    if str(channel.guild.guild_id) != str(settings.BOT_GUILD_ID) :
+        return Response({"error" : "Accès refusé"}, status=status.HTTP_403_FORBIDDEN)
+    
+    messages = DiscordMessage.objects.filter(
+        channel__channel_id=channel_id
+    ).order_by("created_at")
+
+    serializer = DiscordMessageSerializer(messages, many=True)
+
+    return Response(serializer.data)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def trigger_sync(request, channel_id) :
+    requests.post(
+        "http://localhost:8001/api/request_sync_channel/",
+        json={
+            "channel_id": channel_id
+        }
+    )
+    return Response({"status": "Sync déclenchée"})
+
+#On reçoit les rôles
+@csrf_exempt
+@api_view(["POST"])
+def sync_roles(request):
+
+    user = User.objects.get(discord_id=request.data["user_id"])
+    guild = Guild.objects.get(guild_id=request.data["guild_id"])
+
+    user.roles.clear()
+
+    for r in request.data["roles"]:
+        role_obj, _ = GuildRolePermission.objects.get_or_create(
+            guild=guild,
+            role_id=r["id"],
+            defaults={"name": r["name"]}
+        )
+        user.roles.add(role_obj)
+
+    return Response({"status": "roles synced"})
+
+        

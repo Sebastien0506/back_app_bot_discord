@@ -19,6 +19,7 @@ load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+BOT_GUILD_ID=848558064562339851
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
@@ -47,6 +48,7 @@ CSRF_COOKIE_SAMESITE ="Lax"
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
     'rest_framework_simplejwt.token_blacklist',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -58,7 +60,16 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'app_ania_back.backend',
     'corsheaders',
+    'channels',
 ]
+
+ASGI_APPLICATION = "app_ania_back.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
