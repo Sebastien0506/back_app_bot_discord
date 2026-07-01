@@ -1,0 +1,20 @@
+services:
+  db: 
+    image: postgres:17
+
+    restart: always
+    ports:
+      - "5432:5432"
+    
+    environment:
+      POSTGRES_DB: app_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+  
+  backania:
+    build: .
+    ports:
+      - "8000:8000"
+    
+    depends_on:
+      - db

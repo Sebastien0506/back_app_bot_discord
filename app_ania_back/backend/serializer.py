@@ -37,7 +37,7 @@ class ChannelSerializer(serializers.ModelSerializer) :
 class DiscordMessageSerializer(serializers.ModelSerializer) :
     class Meta :
         model = DiscordMessage
-        fields = ["author", "content", "created_at"]
+        fields = ["author", "content", "discord_created_at"]
 
     def validate_content(self, value) :
         value = value.strip()

@@ -10,7 +10,7 @@ from django.http import JsonResponse
 from rest_framework.response import Response 
 from rest_framework import status
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from app_ania_back.backend.serializer import MessageSerializer, ChannelSerializer, DiscordMessageSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import AuthenticationFailed, TokenError, InvalidToken
@@ -173,26 +173,48 @@ def check_permission(request):
     return Response({"allowed": has_permission})
 
 @api_view(["POST"])
-@permission_classes([CookieJWTAuthentication])
+@authentication_classes([CookieJWTAuthentication])
+@permission_classes([IsAuthenticated])
 def on_message(request):
 
     user = request.user
     content = request.data.get("message")
+    # channel_id = request.data.get("idChannel")
+
+    # if not channel_id : 
+    #     return Response(
+    #         {"error": "Id du channel manquant."}, status=status.HTTP_400_BAD_REQUEST
+    #     )
+
 
     if not content:
         return Response(
             {"error": "Message manquant"},
             status=status.HTTP_400_BAD_REQUEST
         )
-
+    user_discord_id = user.discord_id
     serializer = MessageSerializer(data={"content": content})
 
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
 
     serializer.save(user=user)
+    data = {
+        "message": content,
+        # "channel": channel_id,
+        "user_id": user_discord_id
 
-    return Response({"message": "Message enregistré"})
+    }
+
+    url = "http://localhost:8001/voice_message/"
+
+    response = requests.post(url, json=data)
+    print("Status :", response.status_code)
+    print("Response :", response.text)
+    
+
+
+    return Response({"detail": "Message enregistré"})
 
 
 @csrf_exempt
@@ -279,7 +301,8 @@ def sync_message(request) :
             defaults={
                 "channel": channel,
                 "author": msg["author"],
-                "content": msg["content"]
+                "content": msg["content"],
+                "discord_created_at": msg.get("discord_created_at")
             }
         )
         group_name = f"channel_{channel_id}"
@@ -293,7 +316,7 @@ def sync_message(request) :
                 "message": {
                     "author": message_obj.author,
                     "content": message_obj.content,
-                    "created_at": str(message_obj.created_at)
+                    "discord_created_at": msg.get("discord_created_at")
                 }
             }
         )
@@ -311,7 +334,7 @@ def get_message(request, channel_id):
     
     messages = DiscordMessage.objects.filter(
         channel__channel_id=channel_id
-    ).order_by("created_at")
+    ).order_by("discord_created_at")
 
     serializer = DiscordMessageSerializer(messages, many=True)
 
